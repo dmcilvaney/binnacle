@@ -8,6 +8,13 @@
 //! - `CommitLink` - Associations between commits and tasks
 //! - `Edge` - Relationships between entities (dependencies, blocks, related, etc.)
 //! - `Agent` - AI agent registration for lifecycle management
+//!
+//! # Entity Trait
+//!
+//! All primary entities (Task, Bug, Idea, Milestone) implement the [`Entity`] trait,
+//! which ensures a consistent interface for common fields like `id`, `title`, and
+//! `short_name`. This prevents inconsistencies where some entity types accidentally
+//! lack features that others have.
 
 pub mod graph;
 
@@ -15,6 +22,46 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
+
+/// Core trait that all primary entities must implement.
+///
+/// This trait ensures consistency across entity types (Task, Bug, Idea, Milestone).
+/// If a new field like `short_name` is added to one entity, the compiler will
+/// require it on all entities that implement this trait.
+///
+/// # Example
+/// ```ignore
+/// let task: &dyn Entity = &my_task;
+/// println!("ID: {}, Title: {}", task.id(), task.title());
+/// if let Some(name) = task.short_name() {
+///     println!("Short name: {}", name);
+/// }
+/// ```
+pub trait Entity {
+    /// Returns the unique identifier (e.g., "bn-a1b2").
+    fn id(&self) -> &str;
+
+    /// Returns the entity type string (e.g., "task", "bug", "idea", "milestone").
+    fn entity_type(&self) -> &str;
+
+    /// Returns the entity's title.
+    fn title(&self) -> &str;
+
+    /// Returns the optional short display name.
+    fn short_name(&self) -> Option<&str>;
+
+    /// Returns the optional description.
+    fn description(&self) -> Option<&str>;
+
+    /// Returns the creation timestamp.
+    fn created_at(&self) -> DateTime<Utc>;
+
+    /// Returns the last update timestamp.
+    fn updated_at(&self) -> DateTime<Utc>;
+
+    /// Returns the tags for this entity.
+    fn tags(&self) -> &[String];
+}
 
 /// Task status in the workflow.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,6 +197,33 @@ impl Task {
     }
 }
 
+impl Entity for Task {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn entity_type(&self) -> &str {
+        &self.entity_type
+    }
+    fn title(&self) -> &str {
+        &self.title
+    }
+    fn short_name(&self) -> Option<&str> {
+        self.short_name.as_deref()
+    }
+    fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
+    }
+    fn tags(&self) -> &[String] {
+        &self.tags
+    }
+}
+
 /// A defect tracked by Binnacle.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bug {
@@ -162,6 +236,10 @@ pub struct Bug {
 
     /// Bug title
     pub title: String,
+
+    /// Optional short display name (shown in GUI instead of ID)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_name: Option<String>,
 
     /// Detailed description
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -222,6 +300,7 @@ impl Bug {
             id,
             entity_type: "bug".to_string(),
             title,
+            short_name: None,
             description: None,
             priority: 2,
             status: TaskStatus::default(),
@@ -239,6 +318,33 @@ impl Bug {
     }
 }
 
+impl Entity for Bug {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn entity_type(&self) -> &str {
+        &self.entity_type
+    }
+    fn title(&self) -> &str {
+        &self.title
+    }
+    fn short_name(&self) -> Option<&str> {
+        self.short_name.as_deref()
+    }
+    fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
+    }
+    fn tags(&self) -> &[String] {
+        &self.tags
+    }
+}
+
 /// A low-stakes idea or rough concept tracked by Binnacle.
 /// Ideas are distinct from tasks - they represent early-stage notions
 /// that can be captured quickly and potentially grown into full PRDs or tasks.
@@ -253,6 +359,10 @@ pub struct Idea {
 
     /// Idea title
     pub title: String,
+
+    /// Optional short display name (shown in GUI instead of ID)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_name: Option<String>,
 
     /// Detailed description
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -285,6 +395,7 @@ impl Idea {
             id,
             entity_type: "idea".to_string(),
             title,
+            short_name: None,
             description: None,
             tags: Vec::new(),
             status: IdeaStatus::default(),
@@ -292,6 +403,33 @@ impl Idea {
             created_at: now,
             updated_at: now,
         }
+    }
+}
+
+impl Entity for Idea {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn entity_type(&self) -> &str {
+        &self.entity_type
+    }
+    fn title(&self) -> &str {
+        &self.title
+    }
+    fn short_name(&self) -> Option<&str> {
+        self.short_name.as_deref()
+    }
+    fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
+    }
+    fn tags(&self) -> &[String] {
+        &self.tags
     }
 }
 
@@ -307,6 +445,10 @@ pub struct Milestone {
 
     /// Milestone title
     pub title: String,
+
+    /// Optional short display name (shown in GUI instead of ID)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_name: Option<String>,
 
     /// Detailed description
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -355,6 +497,7 @@ impl Milestone {
             id,
             entity_type: "milestone".to_string(),
             title,
+            short_name: None,
             description: None,
             priority: 2,
             status: TaskStatus::default(),
@@ -366,6 +509,33 @@ impl Milestone {
             closed_at: None,
             closed_reason: None,
         }
+    }
+}
+
+impl Entity for Milestone {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn entity_type(&self) -> &str {
+        &self.entity_type
+    }
+    fn title(&self) -> &str {
+        &self.title
+    }
+    fn short_name(&self) -> Option<&str> {
+        self.short_name.as_deref()
+    }
+    fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
+    }
+    fn tags(&self) -> &[String] {
+        &self.tags
     }
 }
 
@@ -1335,5 +1505,56 @@ mod tests {
         assert!(json.contains("\"agent_type\":\"buddy\""));
         assert!(json.contains("\"orient_called\":true"));
         assert!(json.contains("\"started_at\""));
+    }
+
+    /// Compile-time verification that all primary entity types implement the Entity trait.
+    ///
+    /// This test ensures consistency across work item types. If you add a new entity type
+    /// that should have `id`, `title`, `short_name`, etc., add it here. The compiler will
+    /// fail if the Entity trait isn't implemented for it.
+    ///
+    /// Primary entities (must implement Entity):
+    /// - Task: Work items with status and dependencies
+    /// - Bug: Defects with severity tracking
+    /// - Idea: Low-stakes concepts that can be promoted
+    /// - Milestone: Groupings of tasks/bugs with progress tracking
+    ///
+    /// Secondary entities (do NOT implement Entity - different structure):
+    /// - TestNode: Has `name` not `title`, no short_name
+    /// - Agent: Has `name`/`purpose`, different lifecycle
+    /// - Edge, CommitLink, Queue: Relationship/structural types
+    #[test]
+    fn test_all_primary_entities_implement_entity_trait() {
+        // This function exercises the Entity trait on all primary entity types.
+        // If any type doesn't implement Entity, this won't compile.
+        fn assert_entity_impl<T: Entity>(entity: &T) {
+            let _ = entity.id();
+            let _ = entity.entity_type();
+            let _ = entity.title();
+            let _ = entity.short_name();
+            let _ = entity.description();
+            let _ = entity.created_at();
+            let _ = entity.updated_at();
+            let _ = entity.tags();
+        }
+
+        // Verify Task implements Entity
+        let task = Task::new("bn-test".to_string(), "Test Task".to_string());
+        assert_entity_impl(&task);
+
+        // Verify Bug implements Entity
+        let bug = Bug::new("bn-test".to_string(), "Test Bug".to_string());
+        assert_entity_impl(&bug);
+
+        // Verify Idea implements Entity
+        let idea = Idea::new("bn-test".to_string(), "Test Idea".to_string());
+        assert_entity_impl(&idea);
+
+        // Verify Milestone implements Entity
+        let milestone = Milestone::new("bn-test".to_string(), "Test Milestone".to_string());
+        assert_entity_impl(&milestone);
+
+        // NOTE: If you add a new primary entity type, add it here!
+        // The compiler will tell you if Entity isn't implemented.
     }
 }

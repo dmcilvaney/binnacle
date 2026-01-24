@@ -146,6 +146,8 @@ When adding a new entity type to binnacle (like Task, Bug, Idea, etc.), you must
    - [ ] Create the struct with `entity_type` field
    - [ ] Implement serialization/deserialization
    - [ ] Add to `EntityType` enum if needed
+   - [ ] If a "primary" entity (work items with id/title/short_name): implement `Entity` trait
+   - [ ] Add to `test_all_primary_entities_implement_entity_trait` test
 
 2. **Update storage schema** (`src/storage/mod.rs`)
    - [ ] Add `CREATE TABLE` in `init_schema()`

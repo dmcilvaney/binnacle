@@ -57,6 +57,50 @@ impl<T: Serialize> CommandOutput<T> {
     }
 }
 
+// === Short Name Helpers ===
+
+/// Maximum length for short_name (2x display limit for GUI).
+const SHORT_NAME_MAX_LEN: usize = 30;
+
+/// Normalize a short_name for storage (truncate if needed).
+/// Used by create functions. Returns None if input is None.
+fn normalize_short_name(short_name: Option<String>) -> Option<String> {
+    short_name.map(|sn| {
+        if sn.chars().count() > SHORT_NAME_MAX_LEN {
+            eprintln!(
+                "Note: short_name truncated from {} to {} chars for GUI display.",
+                sn.chars().count(),
+                SHORT_NAME_MAX_LEN
+            );
+            sn.chars().take(SHORT_NAME_MAX_LEN).collect::<String>()
+        } else {
+            sn
+        }
+    })
+}
+
+/// Process short_name for update operations.
+/// - None: no change
+/// - Some("")/whitespace: clear the field
+/// - Some(value): set/truncate the value
+fn process_short_name_update(short_name: Option<String>) -> Option<Option<String>> {
+    short_name.map(|s| {
+        if s.trim().is_empty() {
+            // Empty or whitespace-only clears the short_name
+            None
+        } else if s.chars().count() > SHORT_NAME_MAX_LEN {
+            eprintln!(
+                "Note: short_name truncated from {} to {} chars for GUI display.",
+                s.chars().count(),
+                SHORT_NAME_MAX_LEN
+            );
+            Some(s.chars().take(SHORT_NAME_MAX_LEN).collect::<String>())
+        } else {
+            Some(s)
+        }
+    })
+}
+
 // === Init Command ===
 
 /// Prompt the user for a yes/no answer.
@@ -390,19 +434,19 @@ Links connect entities in the task graph to model dependencies, relationships, a
 
 ### Bug Tracking
 
-- `bn bug create "Title" --severity medium` - Create a bug (severities: triage, low, medium, high, critical)
+- `bn bug create "Title" -s "short" --severity medium` - Create a bug (severities: triage, low, medium, high, critical)
 - `bn bug list` - List all bugs
 - `bn bug close <id> --reason "fixed"` - Close a bug
 
 ### Idea Management
 
-- `bn idea create "Title"` - Create a low-stakes idea seed
+- `bn idea create "Title" -s "short"` - Create a low-stakes idea seed
 - `bn idea list` - List all ideas
 - `bn idea update <id> --status promoted` - Promote idea to task
 
 ### Milestones
 
-- `bn milestone create "v1.0" --due 2025-02-01` - Create milestone with due date
+- `bn milestone create "v1.0" -s "v1.0" --due 2025-02-01` - Create milestone with due date
 - `bn milestone list` - List milestones
 - `bn milestone show <id>` - Show milestone with linked tasks
 
@@ -505,7 +549,7 @@ bn goodbye "completed task bn-a1b2"
 
 ## Notes
 
-- Binnacle stores data in `.bn/` directory using git's orphan branch backend
+- Binnacle stores data on a git orphan branch (no working directory clutter)
 - All changes are tracked in an append-only log
 - Use `bn compact` to summarize old closed tasks
 - Run `bn --help` for full command reference
@@ -1824,18 +1868,7 @@ pub fn task_create_with_queue(
         return Err(Error::Other("Priority must be 0-4".to_string()));
     }
 
-    // Auto-truncate very long short_name (2x display limit = 30 chars)
-    let short_name = short_name.map(|sn| {
-        if sn.chars().count() > 30 {
-            eprintln!(
-                "Note: short_name truncated from {} to 30 chars for GUI display.",
-                sn.chars().count()
-            );
-            sn.chars().take(30).collect::<String>()
-        } else {
-            sn
-        }
-    });
+    let short_name = normalize_short_name(short_name);
 
     let id = generate_id("bn", &title);
     let mut task = Task::new(id.clone(), title.clone());
@@ -2571,23 +2604,8 @@ pub fn task_update(
         updated_fields.push("title".to_string());
     }
 
-    if let Some(s) = short_name {
-        // Empty or whitespace-only clears the short_name
-        if s.trim().is_empty() {
-            task.short_name = None;
-        } else {
-            // Auto-truncate very long short_name (2x display limit = 30 chars)
-            let truncated = if s.chars().count() > 30 {
-                eprintln!(
-                    "Note: short_name truncated from {} to 30 chars for GUI display.",
-                    s.chars().count()
-                );
-                s.chars().take(30).collect::<String>()
-            } else {
-                s
-            };
-            task.short_name = Some(truncated);
-        }
+    if let Some(new_short_name) = process_short_name_update(short_name) {
+        task.short_name = new_short_name;
         updated_fields.push("short_name".to_string());
     }
 
@@ -3067,6 +3085,7 @@ impl Output for BugCreated {
 pub fn bug_create(
     repo_path: &Path,
     title: String,
+    short_name: Option<String>,
     description: Option<String>,
     priority: Option<u8>,
     severity: Option<String>,
@@ -3078,6 +3097,7 @@ pub fn bug_create(
     bug_create_with_queue(
         repo_path,
         title,
+        short_name,
         description,
         priority,
         severity,
@@ -3094,6 +3114,7 @@ pub fn bug_create(
 pub fn bug_create_with_queue(
     repo_path: &Path,
     title: String,
+    short_name: Option<String>,
     description: Option<String>,
     priority: Option<u8>,
     severity: Option<String>,
@@ -3113,6 +3134,7 @@ pub fn bug_create_with_queue(
 
     let id = generate_id("bn", &title);
     let mut bug = Bug::new(id.clone(), title.clone());
+    bug.short_name = normalize_short_name(short_name);
     bug.description = description;
     bug.priority = priority.unwrap_or(2);
     bug.severity = severity
@@ -3149,6 +3171,9 @@ impl Output for Bug {
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
         lines.push(format!("{} {}", self.id, self.title));
+        if let Some(ref short_name) = self.short_name {
+            lines.push(format!("  Short Name: {}", short_name));
+        }
         lines.push(format!(
             "  Status: {:?}  Priority: {}  Severity: {:?}",
             self.status, self.priority, self.severity
@@ -3272,6 +3297,9 @@ impl Output for BugShowResult {
         let mut lines = Vec::new();
         lines.push(format!("Bug: {}", self.bug.id));
         lines.push(format!("Title: {}", self.bug.title));
+        if let Some(ref short_name) = self.bug.short_name {
+            lines.push(format!("Short Name: {}", short_name));
+        }
         lines.push(format!("Status: {:?}", self.bug.status));
         lines.push(format!("Priority: P{}", self.bug.priority));
         lines.push(format!("Severity: {:?}", self.bug.severity));
@@ -3667,6 +3695,7 @@ pub fn bug_update(
     repo_path: &Path,
     id: &str,
     title: Option<String>,
+    short_name: Option<String>,
     description: Option<String>,
     priority: Option<u8>,
     status: Option<&str>,
@@ -3685,6 +3714,11 @@ pub fn bug_update(
     if let Some(t) = title {
         bug.title = t;
         updated_fields.push("title".to_string());
+    }
+
+    if let Some(new_short_name) = process_short_name_update(short_name) {
+        bug.short_name = new_short_name;
+        updated_fields.push("short_name".to_string());
     }
 
     if let Some(d) = description {
@@ -4003,6 +4037,7 @@ impl Output for IdeaCreated {
 pub fn idea_create(
     repo_path: &Path,
     title: String,
+    short_name: Option<String>,
     description: Option<String>,
     tags: Vec<String>,
 ) -> Result<IdeaCreated> {
@@ -4010,6 +4045,7 @@ pub fn idea_create(
 
     let id = generate_id("bn", &title);
     let mut idea = Idea::new(id.clone(), title.clone());
+    idea.short_name = normalize_short_name(short_name);
     idea.description = description;
     idea.tags = tags;
 
@@ -4032,6 +4068,9 @@ impl Output for Idea {
             IdeaStatus::Discarded => "discarded",
         };
         lines.push(format!("{} [{}] {}", self.id, status_str, self.title));
+        if let Some(ref short_name) = self.short_name {
+            lines.push(format!("  Short Name: {}", short_name));
+        }
         if let Some(ref desc) = self.description {
             lines.push(format!("  Description: {}", desc));
         }
@@ -4133,10 +4172,12 @@ impl Output for IdeaUpdated {
 }
 
 /// Update an idea.
+#[allow(clippy::too_many_arguments)]
 pub fn idea_update(
     repo_path: &Path,
     id: &str,
     title: Option<String>,
+    short_name: Option<String>,
     description: Option<String>,
     status: Option<&str>,
     add_tags: Vec<String>,
@@ -4149,6 +4190,11 @@ pub fn idea_update(
     if let Some(t) = title {
         idea.title = t;
         updated_fields.push("title".to_string());
+    }
+
+    if let Some(new_short_name) = process_short_name_update(short_name) {
+        idea.short_name = new_short_name;
+        updated_fields.push("short_name".to_string());
     }
 
     if let Some(d) = description {
@@ -4278,9 +4324,11 @@ impl Output for MilestoneCreated {
 }
 
 /// Create a new milestone.
+#[allow(clippy::too_many_arguments)]
 pub fn milestone_create(
     repo_path: &Path,
     title: String,
+    short_name: Option<String>,
     description: Option<String>,
     priority: Option<u8>,
     tags: Vec<String>,
@@ -4297,6 +4345,7 @@ pub fn milestone_create(
 
     let id = generate_id("bn", &title);
     let mut milestone = Milestone::new(id.clone(), title.clone());
+    milestone.short_name = normalize_short_name(short_name);
     milestone.description = description;
     milestone.priority = priority.unwrap_or(2);
     milestone.tags = tags;
@@ -4325,6 +4374,9 @@ impl Output for Milestone {
     fn to_human(&self) -> String {
         let mut lines = Vec::new();
         lines.push(format!("{} {}", self.id, self.title));
+        if let Some(ref short_name) = self.short_name {
+            lines.push(format!("  Short Name: {}", short_name));
+        }
         lines.push(format!(
             "  Status: {:?}  Priority: {}",
             self.status, self.priority
@@ -4502,6 +4554,7 @@ pub fn milestone_update(
     repo_path: &Path,
     id: &str,
     title: Option<String>,
+    short_name: Option<String>,
     description: Option<String>,
     priority: Option<u8>,
     status: Option<&str>,
@@ -4517,6 +4570,11 @@ pub fn milestone_update(
     if let Some(t) = title {
         milestone.title = t;
         updated_fields.push("title".to_string());
+    }
+
+    if let Some(new_short_name) = process_short_name_update(short_name) {
+        milestone.short_name = new_short_name;
+        updated_fields.push("short_name".to_string());
     }
 
     if let Some(d) = description {
@@ -12141,6 +12199,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -12150,6 +12209,7 @@ mod tests {
         bug_create(
             temp.path(),
             "Bug 2".to_string(),
+            None,
             None,
             None,
             None,
@@ -12176,6 +12236,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -12186,6 +12247,7 @@ mod tests {
         let bug_a = bug_create(
             temp.path(),
             "Bug A".to_string(),
+            None,
             None,
             None,
             None,
@@ -13036,6 +13098,7 @@ mod tests {
             "Low bug".to_string(),
             None,
             None,
+            None,
             Some("low".to_string()),
             vec![],
             None,
@@ -13049,6 +13112,7 @@ mod tests {
             "Critical bug".to_string(),
             None,
             None,
+            None,
             Some("critical".to_string()),
             vec![],
             None,
@@ -13060,6 +13124,7 @@ mod tests {
         let closed_bug = bug_create(
             temp.path(),
             "Closed bug".to_string(),
+            None,
             None,
             None,
             Some("high".to_string()),
@@ -13948,6 +14013,7 @@ mod tests {
         let result = bug_create(
             temp.path(),
             "Test bug".to_string(),
+            None,
             Some("Description".to_string()),
             Some(1),
             Some("high".to_string()),
@@ -13967,6 +14033,7 @@ mod tests {
         let result = bug_create(
             temp.path(),
             "Minimal bug".to_string(),
+            None,
             None,
             None,
             None,
@@ -13991,6 +14058,7 @@ mod tests {
             temp.path(),
             "Bad priority".to_string(),
             None,
+            None,
             Some(5), // invalid: must be 0-4
             None,
             vec![],
@@ -14013,6 +14081,7 @@ mod tests {
         let created = bug_create(
             temp.path(),
             "Test bug".to_string(),
+            None,
             Some("Bug description".to_string()),
             Some(1),
             Some("critical".to_string()),
@@ -14046,6 +14115,7 @@ mod tests {
             temp.path(),
             "Bug 1".to_string(),
             None,
+            None,
             Some(1),
             Some("high".to_string()),
             vec![],
@@ -14057,6 +14127,7 @@ mod tests {
         bug_create(
             temp.path(),
             "Bug 2".to_string(),
+            None,
             None,
             Some(2),
             Some("low".to_string()),
@@ -14080,6 +14151,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -14089,6 +14161,7 @@ mod tests {
         bug_create(
             temp.path(),
             "Bug 2".to_string(),
+            None,
             None,
             None,
             None,
@@ -14116,6 +14189,7 @@ mod tests {
             temp.path(),
             "High priority".to_string(),
             None,
+            None,
             Some(0),
             None,
             vec![],
@@ -14127,6 +14201,7 @@ mod tests {
         bug_create(
             temp.path(),
             "Low priority".to_string(),
+            None,
             None,
             Some(3),
             None,
@@ -14150,6 +14225,7 @@ mod tests {
             "Critical bug".to_string(),
             None,
             None,
+            None,
             Some("critical".to_string()),
             vec![],
             None,
@@ -14160,6 +14236,7 @@ mod tests {
         bug_create(
             temp.path(),
             "Low severity".to_string(),
+            None,
             None,
             None,
             Some("low".to_string()),
@@ -14184,6 +14261,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec!["ui".to_string()],
             None,
             None,
@@ -14193,6 +14271,7 @@ mod tests {
         bug_create(
             temp.path(),
             "API bug".to_string(),
+            None,
             None,
             None,
             None,
@@ -14217,6 +14296,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -14228,6 +14308,7 @@ mod tests {
             temp.path(),
             &created.id,
             Some("Updated bug".to_string()),
+            None, // short_name
             Some("New description".to_string()),
             Some(1),
             None,
@@ -14276,6 +14357,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -14287,6 +14369,7 @@ mod tests {
             temp.path(),
             &created.id,
             None,
+            None, // short_name
             None,
             None,
             Some("in_progress"),
@@ -14313,6 +14396,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec!["old-tag".to_string()],
             None,
             None,
@@ -14324,6 +14408,7 @@ mod tests {
             temp.path(),
             &created.id,
             None,
+            None, // short_name
             None,
             None,
             None,
@@ -14351,6 +14436,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -14362,6 +14448,7 @@ mod tests {
             temp.path(),
             &created.id,
             None,
+            None, // short_name
             None,
             None,
             None,
@@ -14391,6 +14478,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -14402,6 +14490,7 @@ mod tests {
             temp.path(),
             &created.id,
             None,
+            None, // short_name
             None,
             Some(5), // invalid
             None,
@@ -14447,6 +14536,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -14459,6 +14549,7 @@ mod tests {
             temp.path(),
             &bug.id,
             None,
+            None, // short_name
             None,
             None,
             Some("in_progress"),
@@ -14487,6 +14578,7 @@ mod tests {
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
+            None,
             None,
             None,
             None,
@@ -14525,6 +14617,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![],
             None,
             None,
@@ -14549,6 +14642,7 @@ mod tests {
         let created = bug_create(
             temp.path(),
             "Bug".to_string(),
+            None,
             None,
             None,
             None,
@@ -14580,13 +14674,14 @@ mod tests {
             let result = bug_create(
                 temp.path(),
                 format!("Bug with {} severity", severity_str),
-                None,
-                None,
-                Some(severity_str.to_string()),
-                vec![],
-                None,
-                None,
-                None,
+                None,                           // short_name
+                None,                           // description
+                None,                           // priority
+                Some(severity_str.to_string()), // severity
+                vec![],                         // tags
+                None,                           // assignee
+                None,                           // reproduction_steps
+                None,                           // affected_component
             )
             .unwrap();
 
@@ -14601,6 +14696,7 @@ mod tests {
         let created = bug_create(
             temp.path(),
             "Test bug".to_string(),
+            None,
             Some("Description".to_string()),
             Some(1),
             Some("high".to_string()),
@@ -14631,6 +14727,7 @@ mod tests {
         bug_create(
             temp.path(),
             "Bug 1".to_string(),
+            None,
             None,
             Some(0),
             Some("critical".to_string()),
@@ -15249,6 +15346,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec!["test".to_string()],
             None,
             None,
@@ -15314,6 +15412,7 @@ mod tests {
         let bug = bug_create(
             temp.path(),
             "Test Bug".to_string(),
+            None,
             None,
             None,
             None,

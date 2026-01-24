@@ -570,9 +570,11 @@ impl McpServer {
                     .unwrap_or_default();
                 let assignee = get_optional_string(args, "assignee");
                 let due_date = get_optional_string(args, "due_date");
+                let short_name = get_optional_string(args, "short_name");
                 let result = commands::milestone_create(
                     repo,
                     title,
+                    short_name,
                     description,
                     priority,
                     tags,
@@ -626,10 +628,12 @@ impl McpServer {
                     .unwrap_or_default();
                 let assignee = get_optional_string(args, "assignee");
                 let due_date = get_optional_string(args, "due_date");
+                let short_name = get_optional_string(args, "short_name");
                 let result = commands::milestone_update(
                     repo,
                     &id,
                     title,
+                    short_name,
                     description,
                     priority,
                     status.as_deref(),
@@ -703,9 +707,10 @@ impl McpServer {
             // Idea tools
             "bn_idea_create" => {
                 let title = get_string_arg(args, "title")?;
+                let short_name = get_optional_string(args, "short_name");
                 let description = get_optional_string(args, "description");
                 let tags = get_string_array(args, "tags");
-                let result = commands::idea_create(repo, title, description, tags)?;
+                let result = commands::idea_create(repo, title, short_name, description, tags)?;
                 Ok(result.to_json())
             }
             "bn_idea_list" => {
@@ -722,6 +727,7 @@ impl McpServer {
             "bn_idea_update" => {
                 let id = get_string_arg(args, "id")?;
                 let title = get_optional_string(args, "title");
+                let short_name = get_optional_string(args, "short_name");
                 let description = get_optional_string(args, "description");
                 let status = get_optional_string(args, "status");
                 let add_tags = get_string_array(args, "add_tags");
@@ -730,6 +736,7 @@ impl McpServer {
                     repo,
                     &id,
                     title,
+                    short_name,
                     description,
                     status.as_deref(),
                     add_tags,
@@ -757,6 +764,7 @@ impl McpServer {
             // Bug tools
             "bn_bug_create" => {
                 let title = get_string_arg(args, "title")?;
+                let short_name = get_optional_string(args, "short_name");
                 let description = get_optional_string(args, "description");
                 let priority = get_optional_u8(args, "priority");
                 let severity = get_optional_string(args, "severity");
@@ -768,6 +776,7 @@ impl McpServer {
                 let result = commands::bug_create_with_queue(
                     repo,
                     title,
+                    short_name,
                     description,
                     priority,
                     severity,
@@ -802,6 +811,7 @@ impl McpServer {
                 let id = get_string_arg(args, "id")?;
                 let title = get_optional_string(args, "title");
                 let description = get_optional_string(args, "description");
+                let short_name = get_optional_string(args, "short_name");
                 let priority = get_optional_u8(args, "priority");
                 let status = get_optional_string(args, "status");
                 let severity = get_optional_string(args, "severity");
@@ -815,6 +825,7 @@ impl McpServer {
                     repo,
                     &id,
                     title,
+                    short_name,
                     description,
                     priority,
                     status.as_deref(),
